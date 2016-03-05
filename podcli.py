@@ -25,12 +25,16 @@ import shutil
 import urlparse
 import subprocess
 import feedparser
-from peewee import CharField, ForeignKeyField, DateTimeField, BooleanField, SqliteDatabase, Model, IntegrityError
+from peewee import CharField, ForeignKeyField, DateTimeField, BooleanField, SqliteDatabase, Model, IntegrityError, TextField
 from time import mktime
 from datetime import datetime, timedelta
 from fileDownloader.fileDownloader import DownloadFile
 import mutagen
 from mutagen import easyid3
+from bs4 import BeautifulSoup
+import unicodedata
+import textwrap
+from blessings import Terminal
 
 
 def load_config():
@@ -60,6 +64,7 @@ class EpisodeTable(Model):
     title = CharField()
     published = DateTimeField()
     enclosure = CharField()
+    summary = TextField(null=True)
     new = BooleanField()
 
     class Meta:
@@ -100,7 +105,18 @@ class PodCli(object):
             print 'Podcast already exists.'
         for pod in PodcastTable.select():
             print pod.title, pod.feed
-            
+
+    def get_summary(self, item):
+        text = BeautifulSoup(item["summary"]).get_text()
+        return unicodedata.normalize("NFKD", text)
+
+    def print_summary(self, summary):
+        if summary:
+            term = Terminal()
+            for line in textwrap.wrap(summary, term.width, initial_indent='    ',
+                                      subsequent_indent='    '):
+                print line
+
     def refresh_all(self):
         for pod in PodcastTable.select():
             feed = feedparser.parse(pod.feed)
@@ -108,14 +124,17 @@ class PodCli(object):
                 enclosure = self.get_enclosure(item)
                 if not enclosure:
                     print '%s has no link, skipping' % item.title
+                # If episode enclosure doesn't exist, add it
                 if EpisodeTable.select().where(EpisodeTable.enclosure ==
                                                enclosure).count() < 1:
                     dt = datetime.fromtimestamp(mktime(
                             item['published_parsed']))
-                    print 'New Episode: ', item['title'], dt.strftime('%d/%m/%Y')
+                    summary = self.get_summary(item)
+                    print 'New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y')
+                    self.print_summary(summary)
                     EpisodeTable.create(podcast=pod, title=item['title'],
                                         published=dt, enclosure=enclosure,
-                                        new=True)
+                                        summary=summary, new=True)
                     
     def get_enclosure(self, episode):
         if 'links' not in episode.keys():
@@ -123,11 +142,20 @@ class PodCli(object):
         for link in episode['links']:
             if link['rel'] == 'enclosure':
                 return link['href']
-    
+
+    def is_downloaded(self, url, filename):
+        if not os.path.exists(filename):
+            return False
+        df = DownloadFile(url, filename)
+        if df.getUrlFileSize() != os.path.getsize(filename):
+            return False
+        else:
+            return True
+
     def download_all_new(self):
         for item in EpisodeTable.select().where(EpisodeTable.new):
             filename = self.get_fullpath(item.enclosure)
-            if not os.path.exists(filename): # TODO: check if filesize is correct to redownload partially downloaded files.
+            if not self.is_downloaded(item.enclosure, filename):
                 print 'downloading: ', item.title
                 self.download(item.enclosure, filename)
                 self.check_id3_edit(item.podcast.id, filename, item)
@@ -145,6 +173,7 @@ class PodCli(object):
         if which == 'new':
             for item in EpisodeTable.select().where(EpisodeTable.new):
                 print str(item.id), 'New Ep: ', item.title, item.published.strftime('%d/%m/%Y')
+                self.print_summary(item.summary)
         if which == 'pod':
             for item in PodcastTable.select():
                 print str(item.id), item.title

@@ -2,3 +2,5 @@ feedparser
 peewee
 fileDownloader.py
 mutagen
+bs4
+blessings

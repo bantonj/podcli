@@ -132,6 +132,7 @@ class PodCli(object):
                     summary = self.get_summary(item)
                     print 'New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y')
                     self.print_summary(summary)
+                    print "\n"
                     EpisodeTable.create(podcast=pod, title=item['title'],
                                         published=dt, enclosure=enclosure,
                                         summary=summary, new=True)
@@ -147,7 +148,10 @@ class PodCli(object):
         if not os.path.exists(filename):
             return False
         df = DownloadFile(url, filename)
-        if df.getUrlFileSize() != os.path.getsize(filename):
+        filesize = df.getUrlFileSize()
+        if not filesize:
+            return False
+        elif int(filesize) > os.path.getsize(filename):
             return False
         else:
             return True
@@ -174,6 +178,7 @@ class PodCli(object):
             for item in EpisodeTable.select().where(EpisodeTable.new):
                 print str(item.id), 'New Ep: ', item.title, item.published.strftime('%d/%m/%Y')
                 self.print_summary(item.summary)
+                print "\n"
         if which == 'pod':
             for item in PodcastTable.select():
                 print str(item.id), item.title

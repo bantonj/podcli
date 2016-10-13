@@ -219,8 +219,16 @@ class PodCli(object):
                     print "Haven't downloaded %s yet." % os.path.basename(filename)
                     continue
                 print 'Copying: ', item.title
-                writetopath = os.path.join(self.config['sync_to'],
-                                           os.path.basename(filename))
+                if self.config["folder_mode"]:
+                    pod_dir = os.path.join(self.config['sync_to'],
+                                               item.podcast.title)
+                    writetopath = os.path.join(pod_dir,
+                                               os.path.basename(filename))
+                    if not os.path.exists(pod_dir):
+                        os.mkdir(pod_dir)
+                else:
+                    writetopath = os.path.join(self.config['sync_to'],
+                                               os.path.basename(filename))
                 shutil.copyfile(filename, writetopath)
                 item.new = False
                 item.save()
@@ -232,11 +240,25 @@ class PodCli(object):
         
     def delete_old(self, location):
         if location == 'local':
-            self.delete_files(self.download_dir)
+            self.delete_files_local(self.download_dir)
         elif location == 'player':
             self.delete_files(self.config['sync_to'])
             
     def delete_files(self, direc, num_days=14):
+        cur_dir = os.getcwd()
+        os.chdir(direc)
+        pod_dirs = os.listdir(direc)
+        for pod_dir in pod_dirs:
+            files = os.listdir(pod_dir)
+            os.chdir(pod_dir)
+            for filename in files:
+                if (datetime.now() - datetime.fromtimestamp(os.path.getctime(filename))).days > num_days:
+                    print 'removing %s' % (str(filename))
+                    os.remove(filename)
+            os.chdir(direc)
+        os.chdir(cur_dir)
+        
+    def delete_files_local(self, direc, num_days=14):
         cur_dir = os.getcwd()
         os.chdir(direc)
         files = os.listdir(direc)

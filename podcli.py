@@ -18,17 +18,18 @@ id3_edit structure:
 """
 import json
 import argparse
-import urllib
+import urllib.request, urllib.parse, urllib.error
 import os
 import sys
 import shutil
-import urlparse
+import urllib.parse
 import subprocess
 import feedparser
 from peewee import CharField, ForeignKeyField, DateTimeField, BooleanField, SqliteDatabase, Model, IntegrityError, TextField
 from time import mktime
 from datetime import datetime, timedelta
-from fileDownloader.fileDownloader import DownloadFile
+#from fileDownloader.fileDownloader import DownloadFile
+from file_downloader import DownloadFile
 import mutagen
 from mutagen import easyid3
 from bs4 import BeautifulSoup
@@ -83,7 +84,7 @@ class PodCli(object):
         self.check_download_dir()
         
     def get_download_dir(self):
-        if 'download_folder' in self.config.keys():
+        if 'download_folder' in list(self.config.keys()):
             if os.path.isabs(self.config['download_folder']):
                 return self.config['download_folder']
             else:
@@ -102,20 +103,20 @@ class PodCli(object):
         try:
             PodcastTable.create(feed=rss_url, title=feed['feed']['title'])
         except IntegrityError:
-            print 'Podcast already exists.'
+            print('Podcast already exists.')
         for pod in PodcastTable.select():
-            print pod.title, pod.feed
+            print(pod.title, pod.feed)
 
     def get_summary(self, item):
-        text = BeautifulSoup(item["summary"]).get_text()
+        text = BeautifulSoup(item["summary"], "html.parser").get_text()
         return unicodedata.normalize("NFKD", text)
 
     def print_summary(self, summary):
         if summary:
             term = Terminal()
-            for line in textwrap.wrap(summary, term.width, initial_indent='    ',
-                                      subsequent_indent='    '):
-                print line
+            for line in textwrap.wrap(summary, term.width,
+            initial_indent='    ', subsequent_indent='    '):
+                print(line)
 
     def refresh_all(self):
         for pod in PodcastTable.select():
@@ -123,22 +124,23 @@ class PodCli(object):
             for item in feed['entries']:
                 enclosure = self.get_enclosure(item)
                 if not enclosure:
-                    print '%s has no link, skipping' % item.title
+                    print('%s has no link, skipping...' % item.title)
+                    continue
                 # If episode enclosure doesn't exist, add it
                 if EpisodeTable.select().where(EpisodeTable.enclosure ==
                                                enclosure).count() < 1:
                     dt = datetime.fromtimestamp(mktime(
                             item['published_parsed']))
                     summary = self.get_summary(item)
-                    print 'New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y')
+                    print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
                     self.print_summary(summary)
-                    print "\n"
+                    print("\n")
                     EpisodeTable.create(podcast=pod, title=item['title'],
                                         published=dt, enclosure=enclosure,
                                         summary=summary, new=True)
                     
     def get_enclosure(self, episode):
-        if 'links' not in episode.keys():
+        if 'links' not in list(episode.keys()):
             return False
         for link in episode['links']:
             if link['rel'] == 'enclosure':
@@ -147,8 +149,12 @@ class PodCli(object):
     def is_downloaded(self, url, filename):
         if not os.path.exists(filename):
             return False
-        df = DownloadFile(url, filename)
-        filesize = df.getUrlFileSize()
+        try:
+            df = DownloadFile(url, filename)
+            filesize = df.get_url_filesize()
+        except urllib.error.HTTPError:
+            print("HTTTP Error Skipping")
+            return True
         if not filesize:
             return False
         elif int(filesize) > os.path.getsize(filename):
@@ -160,42 +166,44 @@ class PodCli(object):
         for item in EpisodeTable.select().where(EpisodeTable.new):
             filename = self.get_fullpath(item.enclosure)
             if not self.is_downloaded(item.enclosure, filename):
-                print 'downloading: ', item.title
-                self.download(item.enclosure, filename)
-                self.check_id3_edit(item.podcast.id, filename, item)
+                print('downloading: ', item.title)
+                if self.download(item.enclosure, filename):
+                    self.check_id3_edit(item.podcast.id, filename, item)
             
     def download(self, url, fullpath):
-        df = DownloadFile(url, fullpath)
-        df.download()
-        return df.localFileName
+        try:
+            df = DownloadFile(url, fullpath)
+            df.download()
+        except urllib.error.HTTPError:
+            print("Http Error, skipping")
+            return False
+        return df.local_filename
         
     def get_fullpath(self, url):
-        return os.path.join(self.download_dir, urllib.unquote(
-                os.path.basename(urlparse.urlparse(url).path)))
+        return os.path.join(self.download_dir, urllib.parse.unquote(
+                os.path.basename(urllib.parse.urlparse(url).path)))
     
     def list(self, which):
         if which == 'new':
             for item in EpisodeTable.select().where(EpisodeTable.new):
-                print str(item.id), 'New Ep: ', item.title, item.published.strftime('%d/%m/%Y')
                 self.print_summary(item.summary)
-                print "\n"
+                print("\n")
         if which == 'pod':
             for item in PodcastTable.select():
-                print str(item.id), item.title
+                print(str(item.id), item.title)
                 
     def check_id3_edit(self, podcast_id, filename, item):
-        if str(podcast_id) in self.config['id3_edit'].keys():
+        if str(podcast_id) in list(self.config['id3_edit'].keys()):
             id3_config = self.config['id3_edit'][str(podcast_id)]
             album = id3_config['album']
             artist = id3_config['artist']
-            if 'title' in id3_config.keys():
+            if 'title' in list(id3_config.keys()):
                 if id3_config['title'] == 'copy_item':
                     title = item.title
                 else:
                     title = item.published.strftime('%d/%m-') + album
                 self.edit_id3(filename, album, artist, title)
             else:
-
                 self.edit_id3(filename, album, artist)
     
     def edit_id3(self, filename, album, artist, title=None):
@@ -206,7 +214,7 @@ class PodCli(object):
             audio.add_tags()
         audio["album"] = album
         audio["artist"] = artist
-        audio["genre"] = u"Podcast"
+        audio["genre"] = "Podcast"
         if title:
             audio["title"] = title
         audio.save()
@@ -216,9 +224,10 @@ class PodCli(object):
             for item in EpisodeTable.select().where(EpisodeTable.new):
                 filename = self.get_fullpath(item.enclosure)
                 if not os.path.exists(filename):
-                    print "Haven't downloaded %s yet." % os.path.basename(filename)
+                    print("Haven't downloaded %s yet." % 
+                        os.path.basename(filename))
                     continue
-                print 'Copying: ', item.title
+                print('Copying: ', item.title)
                 if self.config["folder_mode"]:
                     pod_dir = os.path.join(self.config['sync_to'],
                                                item.podcast.title)
@@ -249,11 +258,21 @@ class PodCli(object):
         os.chdir(direc)
         pod_dirs = os.listdir(direc)
         for pod_dir in pod_dirs:
+            os.chdir(cur_dir)
+            podcast = PodcastTable.select().\
+                where(PodcastTable.title == pod_dir).get()
+            os.chdir(direc)
             files = os.listdir(pod_dir)
             os.chdir(pod_dir)
             for filename in files:
-                if (datetime.now() - datetime.fromtimestamp(os.path.getctime(filename))).days > num_days:
-                    print 'removing %s' % (str(filename))
+                file_age = (datetime.now() -\
+                    datetime.fromtimestamp(os.path.getctime(filename))).days
+                if str(podcast.id) in self.config["podcast_age"].keys():
+                    conf_age = self.config["podcast_age"][str(podcast.id)]
+                else:
+                    conf_age = num_days    
+                if file_age > num_days or file_age > conf_age:
+                    print('removing %s' % (str(filename)))
                     os.remove(filename)
             os.chdir(direc)
         os.chdir(cur_dir)
@@ -264,7 +283,7 @@ class PodCli(object):
         files = os.listdir(direc)
         for filename in files:
             if (datetime.now() - datetime.fromtimestamp(os.path.getctime(filename))).days > num_days:
-                print 'removing %s' % (str(filename))
+                print('removing %s' % (str(filename)))
                 os.remove(filename)
         os.chdir(cur_dir)
         
@@ -277,7 +296,7 @@ class PodCli(object):
             episodes = EpisodeTable.select().where(EpisodeTable.new)
         for item in episodes:
             if item.published < datetime.now()-timedelta(days):
-                print 'Marking old: ', item.title
+                print('Marking old: ', item.title)
                 item.new = False
                 item.save()
     

@@ -5,3 +5,4 @@ podcli.db
 .idea/
 *.bak
 venv/
+podcli_config.json

@@ -26,21 +26,24 @@ import urllib.parse
 import subprocess
 import feedparser
 from peewee import CharField, ForeignKeyField, DateTimeField, BooleanField, SqliteDatabase, Model, IntegrityError, TextField
-from time import mktime
+from time import mktime, sleep
 from datetime import datetime, timedelta
-#from fileDownloader.fileDownloader import DownloadFile
-from file_downloader import DownloadFile
+from downloader import Download, DownloadError
 import mutagen
 from mutagen import easyid3
 from bs4 import BeautifulSoup
 import unicodedata
 import textwrap
+from terminaltables import AsciiTable
 from blessings import Terminal
+from gevent import monkey; monkey.patch_all()
+import gevent
 
 
 def load_config():
     f = open('podcli_config.json', 'r')
     return json.load(f)
+
 
 def get_enclosure(links):
     for x in links:
@@ -117,27 +120,55 @@ class PodCli(object):
             for line in textwrap.wrap(summary, term.width,
             initial_indent='    ', subsequent_indent='    '):
                 print(line)
+    
+    def print_summary_table(self, items=None):
+        table_headers = [['title', 'summary']]
+        table_data = []
+        ascii_table = None
+        if not items:
+            items = EpisodeTable.select().where(EpisodeTable.new)
+        for item in items:
+            term = Terminal()
+            summ = ""
+            for line in textwrap.wrap(item.summary, term.width*0.7,
+            initial_indent=' ', subsequent_indent=' '):
+                summ += line + "\n"
+            table_data.append([item.podcast.title, summ])
+            ascii_table = AsciiTable(table_headers + table_data)
+            ascii_table.inner_row_border = True
+        if ascii_table:
+            print(ascii_table.table)
+        else:
+            "Nothing to show"
 
     def refresh_all(self):
+        print("Refreshing feeds")
+        spawned = []
         for pod in PodcastTable.select():
-            feed = feedparser.parse(pod.feed)
-            for item in feed['entries']:
-                enclosure = self.get_enclosure(item)
-                if not enclosure:
-                    print('%s has no link, skipping...' % item.title)
-                    continue
-                # If episode enclosure doesn't exist, add it
-                if EpisodeTable.select().where(EpisodeTable.enclosure ==
-                                               enclosure).count() < 1:
-                    dt = datetime.fromtimestamp(mktime(
-                            item['published_parsed']))
-                    summary = self.get_summary(item)
-                    print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
-                    self.print_summary(summary)
-                    print("\n")
-                    EpisodeTable.create(podcast=pod, title=item['title'],
-                                        published=dt, enclosure=enclosure,
-                                        summary=summary, new=True)
+            # self.get_podcast_feed(pod.feed, idx)
+            spawned.append(gevent.spawn(self.get_podcast_feed, pod.feed, pod))
+        gevent.joinall(spawned)
+
+    def get_podcast_feed(self, url, pod):
+        feed = feedparser.parse(url)
+        for item in feed['entries']:
+            enclosure = self.get_enclosure(item)
+            if not enclosure:
+                print('%s has no link, skipping...' % item.title)
+                continue
+            # If episode enclosure doesn't exist, add it
+            if EpisodeTable.select().where(EpisodeTable.enclosure ==
+                                           enclosure).count() < 1:
+                dt = datetime.fromtimestamp(mktime(
+                        item['published_parsed']))
+                summary = self.get_summary(item)
+                print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
+                self.print_summary(summary)
+                print("\n")
+                EpisodeTable.create(podcast=pod, title=item['title'],
+                                    published=dt, enclosure=enclosure,
+                                    summary=summary, new=True)
+        print("Refreshed feed: %s" % pod.title)
                     
     def get_enclosure(self, episode):
         if 'links' not in list(episode.keys()):
@@ -150,34 +181,37 @@ class PodCli(object):
         if not os.path.exists(filename):
             return False
         try:
-            df = DownloadFile(url, filename)
-            filesize = df.get_url_filesize()
+            df = Download(url, filename)
+            filesize = df.get_url_file_size()
         except urllib.error.HTTPError:
             print("HTTTP Error Skipping")
             return True
         if not filesize:
             return False
         elif int(filesize) > os.path.getsize(filename):
+            print("filesize mismatch: %s %s" % (filesize, os.path.getsize(filename)))
             return False
         else:
             return True
 
     def download_all_new(self):
+        spawned = []
         for item in EpisodeTable.select().where(EpisodeTable.new):
             filename = self.get_fullpath(item.enclosure)
             if not self.is_downloaded(item.enclosure, filename):
-                print('downloading: ', item.title)
-                if self.download(item.enclosure, filename):
-                    self.check_id3_edit(item.podcast.id, filename, item)
+                self.print_summary_table([item])
+                spawned.append(gevent.spawn(self.download, item.enclosure, filename, item))
+        gevent.joinall(spawned)
             
-    def download(self, url, fullpath):
+    def download(self, url, fullpath, item):
         try:
-            df = DownloadFile(url, fullpath)
+            df = Download(url, fullpath)
             df.download()
         except urllib.error.HTTPError:
             print("Http Error, skipping")
             return False
-        return df.local_filename
+        self.check_id3_edit(item.podcast.id, fullpath, item)
+        return 
         
     def get_fullpath(self, url):
         return os.path.join(self.download_dir, urllib.parse.unquote(
@@ -185,12 +219,19 @@ class PodCli(object):
     
     def list(self, which):
         if which == 'new':
-            for item in EpisodeTable.select().where(EpisodeTable.new):
-                self.print_summary(item.summary)
-                print("\n")
+            self.print_summary_table()
+            # for item in EpisodeTable.select().where(EpisodeTable.new):
+            #     self.print_summary(item.summary)
+            #     print("\n")
         if which == 'pod':
+            table_headers = [['id', 'title']]
+            table_data = []
             for item in PodcastTable.select():
-                print(str(item.id), item.title)
+                table_data.append([str(item.id), item.title])
+            ascii_table = AsciiTable(table_headers + table_data)
+            ascii_table.inner_row_border = True
+            print(ascii_table.table)
+            
                 
     def check_id3_edit(self, podcast_id, filename, item):
         if str(podcast_id) in list(self.config['id3_edit'].keys()):
@@ -227,7 +268,7 @@ class PodCli(object):
                     print("Haven't downloaded %s yet." % 
                         os.path.basename(filename))
                     continue
-                print('Copying: ', item.title)
+                self.print_summary_table([item])
                 if self.config["folder_mode"]:
                     pod_dir = os.path.join(self.config['sync_to'],
                                                item.podcast.title)
@@ -301,7 +342,9 @@ class PodCli(object):
                 item.save()
     
     def eject(self):
-        subprocess.call(['diskutil', 'unmount', self.config['eject_point']])
+        while subprocess.call(['diskutil', 'unmount', self.config['eject_point']]):
+            print("Attempting to eject.")
+            sleep(5)
         
         
 if __name__ == '__main__':

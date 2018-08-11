@@ -1,6 +1,8 @@
 feedparser
 peewee
-fileDownloader.py
+file-downloader
 mutagen
 bs4
 blessings
+terminaltables
+gevent

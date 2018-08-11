@@ -1,0 +1,7 @@
+downloads/
+podcli.db
+*.pyc
+.DS_Store
+.idea/
+*.bak
+venv/

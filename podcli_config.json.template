@@ -2,7 +2,7 @@
   "db": "podcli.db",
   "sync_to": "SET TO DIR TO COPY PODCASTS TO",
   "eject_point": "WHERE TO EJECT",
-  "download_folder": "downloads",
+  "download_folder": "SET TO DIR TO DOWNLOAD PODCASTS TO",
   "id3_edit": {
   }
 }

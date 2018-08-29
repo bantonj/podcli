@@ -35,6 +35,8 @@ from bs4 import BeautifulSoup
 import unicodedata
 import textwrap
 from terminaltables import AsciiTable
+from terminaltables.width_and_alignment import max_dimensions
+from terminaltables.build import flatten
 from blessings import Terminal
 from gevent import monkey; monkey.patch_all()
 import gevent
@@ -79,7 +81,16 @@ def create_tables():
     PodcastTable.create_table(fail_silently=True)
     EpisodeTable.create_table(fail_silently=True)
 
-        
+
+def ascii_table_last(ascii_table):
+    dimensions = max_dimensions(ascii_table.table_data, ascii_table.padding_left, ascii_table.padding_right)[:3]
+    whole_table = ascii_table.table_data
+    ascii_table.table_data = (ascii_table.table_data[-1], )
+    last_table = flatten(ascii_table.gen_table(*dimensions))
+    ascii_table.table_data = whole_table
+    return last_table
+
+
 class PodCli(object):
     def __init__(self):
         self.config = load_config()
@@ -141,20 +152,53 @@ class PodCli(object):
         else:
             "Nothing to show"
 
+    def print_download_item(self, item, ascii_table):
+            term = Terminal()
+            summ = ""
+            for line in textwrap.wrap(item.summary, term.width*0.7, initial_indent=' ', subsequent_indent=' '):
+                summ += line + "\n"
+            if ascii_table:
+                ascii_table.table_data.append([item.podcast.title, summ])
+
+                print(ascii_table_last(ascii_table))
+                return ascii_table
+            else:
+                table_headers = [['title', 'summary']]
+                table_data = [[item.podcast.title, summ]]
+                ascii_table = AsciiTable(table_headers + table_data)
+                ascii_table.inner_row_border = True
+                print(ascii_table.table)
+                return ascii_table
+
     def refresh_all(self):
-        print("Refreshing feeds")
+        # print("Refreshing feeds ...")
         spawned = []
         for pod in PodcastTable.select():
-            # self.get_podcast_feed(pod.feed, idx)
             spawned.append(gevent.spawn(self.get_podcast_feed, pod.feed, pod))
-        gevent.joinall(spawned)
+        gevent.iwait
+        dots = 1
+        while True:
+            alive = False
+            for gl in spawned:
+                if not gl.dead:
+                    alive = True
+            if not alive:
+                print("\n")
+                break
+            message = "Refreshing feeds " + "." * dots
+            sys.stdout.write('\x1b[2K\r' + message)
+            sys.stdout.flush()
+            dots += 1
+            if dots > 4:
+                dots = 1
+            gevent.sleep(0.5)
 
     def get_podcast_feed(self, url, pod):
         feed = feedparser.parse(url)
         for item in feed['entries']:
             enclosure = self.get_enclosure(item)
             if not enclosure:
-                print('%s has no link, skipping...' % item.title)
+                # print('%s has no link, skipping...' % item.title)
                 continue
             # If episode enclosure doesn't exist, add it
             if EpisodeTable.select().where(EpisodeTable.enclosure ==
@@ -162,13 +206,13 @@ class PodCli(object):
                 dt = datetime.fromtimestamp(mktime(
                         item['published_parsed']))
                 summary = self.get_summary(item)
-                print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
-                self.print_summary(summary)
-                print("\n")
+                # print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
+                # self.print_summary(summary)
+                # print("\n")
                 EpisodeTable.create(podcast=pod, title=item['title'],
                                     published=dt, enclosure=enclosure,
                                     summary=summary, new=True)
-        print("Refreshed feed: %s" % pod.title)
+        # print("Refreshed feed: %s" % pod.title)
                     
     def get_enclosure(self, episode):
         if 'links' not in list(episode.keys()):
@@ -195,11 +239,13 @@ class PodCli(object):
             return True
 
     def download_all_new(self):
+        print("Downloading ...")
         spawned = []
+        ascii_table = None
         for item in EpisodeTable.select().where(EpisodeTable.new):
             filename = self.get_fullpath(item.enclosure)
             if not self.is_downloaded(item.enclosure, filename):
-                self.print_summary_table([item])
+                ascii_table = self.print_download_item(item, ascii_table)
                 spawned.append(gevent.spawn(self.download, item.enclosure, filename, item))
         gevent.joinall(spawned)
             
@@ -231,8 +277,7 @@ class PodCli(object):
             ascii_table = AsciiTable(table_headers + table_data)
             ascii_table.inner_row_border = True
             print(ascii_table.table)
-            
-                
+
     def check_id3_edit(self, podcast_id, filename, item):
         if str(podcast_id) in list(self.config['id3_edit'].keys()):
             id3_config = self.config['id3_edit'][str(podcast_id)]
@@ -262,6 +307,7 @@ class PodCli(object):
 
     def sync(self, which):
         if which == 'new':
+            print("syncing ...")
             for item in EpisodeTable.select().where(EpisodeTable.new):
                 filename = self.get_fullpath(item.enclosure)
                 if not os.path.exists(filename):

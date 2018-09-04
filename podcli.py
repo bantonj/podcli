@@ -38,7 +38,8 @@ from terminaltables import AsciiTable
 from terminaltables.width_and_alignment import max_dimensions
 from terminaltables.build import flatten
 from blessings import Terminal
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey
+monkey.patch_all()
 import gevent
 
 
@@ -62,9 +63,9 @@ class PodcastTable(Model):
     title = CharField()
 
     class Meta:
-        database = db # this model uses the podcli database
+        database = db  # this model uses the podcli database
 
-        
+
 class EpisodeTable(Model):
     podcast = ForeignKeyField(PodcastTable, related_name='episodes')
     title = CharField()
@@ -74,24 +75,28 @@ class EpisodeTable(Model):
     new = BooleanField()
 
     class Meta:
-        database = db # this model uses the podcli database
+        database = db  # this model uses the podcli database
 
-        
+
 def create_tables():
     PodcastTable.create_table(fail_silently=True)
     EpisodeTable.create_table(fail_silently=True)
 
 
 def ascii_table_last(ascii_table):
-    dimensions = max_dimensions(ascii_table.table_data, ascii_table.padding_left, ascii_table.padding_right)[:3]
+    dimensions = max_dimensions(ascii_table.table_data,
+                                ascii_table.padding_left,
+                                ascii_table.padding_right)[:3]
     whole_table = ascii_table.table_data
     ascii_table.table_data = (ascii_table.table_data[-1], )
     last_table = flatten(ascii_table.gen_table(*dimensions))
     ascii_table.table_data = whole_table
     return last_table
 
+
 def get_max_dimensions(ascii_table):
-    return max_dimensions(ascii_table.table_data, ascii_table.padding_left, ascii_table.padding_right)[:3]
+    return max_dimensions(ascii_table.table_data, ascii_table.padding_left,
+                          ascii_table.padding_right)[:3]
 
 
 class PodCli(object):
@@ -99,22 +104,22 @@ class PodCli(object):
         self.config = load_config()
         self.download_dir = self.get_download_dir()
         self.check_download_dir()
-        
+
     def get_download_dir(self):
         if 'download_folder' in list(self.config.keys()):
             if os.path.isabs(self.config['download_folder']):
                 return self.config['download_folder']
             else:
-                return os.path.join(os.path.dirname(
-                        os.path.realpath(sys.argv[0])),
-                        self.config['download_folder'])
+                return os.path.join(
+                    os.path.dirname(os.path.realpath(sys.argv[0])),
+                    self.config['download_folder'])
         else:
             return os.path.dirname(os.path.realpath(sys.argv[0]))
-    
+
     def check_download_dir(self):
         if not os.path.exists(self.download_dir):
             os.mkdir(self.download_dir)
-    
+
     def add_podcast(self, rss_url):
         feed = feedparser.parse(rss_url)
         try:
@@ -131,10 +136,13 @@ class PodCli(object):
     def print_summary(self, summary):
         if summary:
             term = Terminal()
-            for line in textwrap.wrap(summary, term.width,
-            initial_indent='    ', subsequent_indent='    '):
+            for line in textwrap.wrap(
+                    summary,
+                    term.width,
+                    initial_indent='    ',
+                    subsequent_indent='    '):
                 print(line)
-    
+
     def print_summary_table(self, items=None):
         table_headers = [['title', 'summary']]
         table_data = []
@@ -144,8 +152,11 @@ class PodCli(object):
         for item in items:
             term = Terminal()
             summ = ""
-            for line in textwrap.wrap(item.summary, term.width*0.7,
-            initial_indent=' ', subsequent_indent=' '):
+            for line in textwrap.wrap(
+                    item.summary,
+                    term.width * 0.7,
+                    initial_indent=' ',
+                    subsequent_indent=' '):
                 summ += line + "\n"
             table_data.append([item.podcast.title, summ])
             ascii_table = AsciiTable(table_headers + table_data)
@@ -156,27 +167,33 @@ class PodCli(object):
             "Nothing to show"
 
     def print_download_item(self, item, ascii_table):
-            dimensions = get_max_dimensions(ascii_table)
-            title = ""
-            for line in textwrap.wrap(item.podcast.title, dimensions[0][0], initial_indent=' ',
-                                      subsequent_indent=' '):
-                title += line + "\n"
-            summ = ""
-            for line in textwrap.wrap(item.summary, dimensions[0][1], initial_indent=' ',
-                                      subsequent_indent=' '):
-                summ += line + "\n"
-            if ascii_table:
-                ascii_table.table_data.append([title, summ])
+        dimensions = get_max_dimensions(ascii_table)
+        title = ""
+        for line in textwrap.wrap(
+                item.podcast.title,
+                dimensions[0][0],
+                initial_indent=' ',
+                subsequent_indent=' '):
+            title += line + "\n"
+        summ = ""
+        for line in textwrap.wrap(
+                item.summary,
+                dimensions[0][1],
+                initial_indent=' ',
+                subsequent_indent=' '):
+            summ += line + "\n"
+        if ascii_table:
+            ascii_table.table_data.append([title, summ])
 
-                print(ascii_table_last(ascii_table))
-                return ascii_table
-            else:
-                table_headers = [['title', 'summary']]
-                table_data = [[title, summ]]
-                ascii_table = AsciiTable(table_headers + table_data)
-                ascii_table.inner_row_border = True
-                print(ascii_table.table)
-                return ascii_table
+            print(ascii_table_last(ascii_table))
+            return ascii_table
+        else:
+            table_headers = [['title', 'summary']]
+            table_data = [[title, summ]]
+            ascii_table = AsciiTable(table_headers + table_data)
+            ascii_table.inner_row_border = True
+            print(ascii_table.table)
+            return ascii_table
 
     def refresh_all(self):
         # print("Refreshing feeds ...")
@@ -209,19 +226,22 @@ class PodCli(object):
                 # print('%s has no link, skipping...' % item.title)
                 continue
             # If episode enclosure doesn't exist, add it
-            if EpisodeTable.select().where(EpisodeTable.enclosure ==
-                                           enclosure).count() < 1:
-                dt = datetime.fromtimestamp(mktime(
-                        item['published_parsed']))
+            if EpisodeTable.select().where(
+                    EpisodeTable.enclosure == enclosure).count() < 1:
+                dt = datetime.fromtimestamp(mktime(item['published_parsed']))
                 summary = self.get_summary(item)
                 # print('New Episode: ', pod.title, " -- ", item['title'], dt.strftime('%d/%m/%Y'))
                 # self.print_summary(summary)
                 # print("\n")
-                EpisodeTable.create(podcast=pod, title=item['title'],
-                                    published=dt, enclosure=enclosure,
-                                    summary=summary, new=True)
+                EpisodeTable.create(
+                    podcast=pod,
+                    title=item['title'],
+                    published=dt,
+                    enclosure=enclosure,
+                    summary=summary,
+                    new=True)
         # print("Refreshed feed: %s" % pod.title)
-                    
+
     def get_enclosure(self, episode):
         if 'links' not in list(episode.keys()):
             return False
@@ -241,7 +261,8 @@ class PodCli(object):
         if not filesize:
             return False
         elif int(filesize) > os.path.getsize(filename):
-            print("filesize mismatch: %s %s" % (filesize, os.path.getsize(filename)))
+            print("filesize mismatch: %s %s" % (filesize,
+                                                os.path.getsize(filename)))
             return False
         else:
             return True
@@ -254,9 +275,11 @@ class PodCli(object):
             filename = self.get_fullpath(item.enclosure)
             if not self.is_downloaded(item.enclosure, filename):
                 ascii_table = self.print_download_item(item, ascii_table)
-                spawned.append(gevent.spawn(self.download, item.enclosure, filename, item))
+                spawned.append(
+                    gevent.spawn(self.download, item.enclosure, filename,
+                                 item))
         gevent.joinall(spawned)
-            
+
     def download(self, url, fullpath, item):
         try:
             df = Download(url, fullpath)
@@ -265,12 +288,14 @@ class PodCli(object):
             print("Http Error, skipping")
             return False
         self.check_id3_edit(item.podcast.id, fullpath, item)
-        return 
-        
+        return
+
     def get_fullpath(self, url):
-        return os.path.join(self.download_dir, urllib.parse.unquote(
+        return os.path.join(
+            self.download_dir,
+            urllib.parse.unquote(
                 os.path.basename(urllib.parse.urlparse(url).path)))
-    
+
     def list(self, which):
         if which == 'new':
             self.print_summary_table()
@@ -299,7 +324,7 @@ class PodCli(object):
                 self.edit_id3(filename, album, artist, title)
             else:
                 self.edit_id3(filename, album, artist)
-    
+
     def edit_id3(self, filename, album, artist, title=None):
         try:
             audio = easyid3.EasyID3(filename)
@@ -319,13 +344,13 @@ class PodCli(object):
             for item in EpisodeTable.select().where(EpisodeTable.new):
                 filename = self.get_fullpath(item.enclosure)
                 if not os.path.exists(filename):
-                    print("Haven't downloaded %s yet." % 
-                        os.path.basename(filename))
+                    print("Haven't downloaded %s yet." %
+                          os.path.basename(filename))
                     continue
                 self.print_summary_table([item])
                 if self.config["folder_mode"]:
                     pod_dir = os.path.join(self.config['sync_to'],
-                                               item.podcast.title)
+                                           item.podcast.title)
                     writetopath = os.path.join(pod_dir,
                                                os.path.basename(filename))
                     if not os.path.exists(pod_dir):
@@ -336,18 +361,18 @@ class PodCli(object):
                 shutil.copyfile(filename, writetopath)
                 item.new = False
                 item.save()
-                
+
     def delete_podcast(self, podcast_id):
         podcast = PodcastTable.select().\
             where(PodcastTable.id == podcast_id).get()
         podcast.delete_instance(recursive=True)
-        
+
     def delete_old(self, location):
         if location == 'local':
             self.delete_files_local(self.download_dir)
         elif location == 'player':
             self.delete_files(self.config['sync_to'])
-            
+
     def delete_files(self, direc, num_days=14):
         cur_dir = os.getcwd()
         os.chdir(direc)
@@ -365,57 +390,92 @@ class PodCli(object):
                 if str(podcast.id) in self.config["podcast_age"].keys():
                     conf_age = self.config["podcast_age"][str(podcast.id)]
                 else:
-                    conf_age = num_days    
+                    conf_age = num_days
                 if file_age > num_days or file_age > conf_age:
                     print('removing %s' % (str(filename)))
                     os.remove(filename)
             os.chdir(direc)
         os.chdir(cur_dir)
-        
+
     def delete_files_local(self, direc, num_days=14):
         cur_dir = os.getcwd()
         os.chdir(direc)
         files = os.listdir(direc)
         for filename in files:
-            if (datetime.now() - datetime.fromtimestamp(os.path.getctime(filename))).days > num_days:
+            if (datetime.now() - datetime.fromtimestamp(
+                    os.path.getctime(filename))).days > num_days:
                 print('removing %s' % (str(filename)))
                 os.remove(filename)
         os.chdir(cur_dir)
-        
+
     def mark_old(self, days, podcast_id=False):
         if podcast_id:
-            podcast = PodcastTable.select().where(PodcastTable.id == podcast_id).get()
+            podcast = PodcastTable.select().where(
+                PodcastTable.id == podcast_id).get()
             episodes = EpisodeTable.select().\
                 where(EpisodeTable.new, EpisodeTable.podcast == podcast)
         else:
             episodes = EpisodeTable.select().where(EpisodeTable.new)
         for item in episodes:
-            if item.published < datetime.now()-timedelta(days):
+            if item.published < datetime.now() - timedelta(days):
                 print('Marking old: ', item.title)
                 item.new = False
                 item.save()
-    
+
     def eject(self):
-        while subprocess.call(['diskutil', 'unmount', self.config['eject_point']]):
+        while subprocess.call(
+            ['diskutil', 'unmount', self.config['eject_point']]):
             print("Attempting to eject.")
             sleep(5)
-        
-        
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-a", "--add_podcast", help="add new podcast")
-    parser.add_argument("-r", "--refresh_all", help="refresh all podcasts", nargs='?', const=True)
-    parser.add_argument("-d", "--download_all_new", help="download all new podcasts", nargs='?', const=True)
-    parser.add_argument("-l", "--list", help="with no argument lists all new podcasts, with argument pod it lists all podcasts", nargs='?', const='new')
-    parser.add_argument("-s", "--sync", help="sync all new podcasts", nargs='?', const='new')
-    parser.add_argument("--delete", help="delete podcast, must specify podcast id")
-    parser.add_argument("--delete_old", help="delete old episode downloads, defaults to local episodes, other option player", nargs='?', const='local')
-    parser.add_argument("--mark_old", help="mark episodes older than arg as old", nargs='?', const='7')
-    parser.add_argument("--mark_old_podcast", help="specifies mark_old podcast to mark old episodes", nargs='?', const=False)  
-    parser.add_argument("-e", "--eject", help="eject player", nargs='?', const=True)
+    parser.add_argument(
+        "-r",
+        "--refresh_all",
+        help="refresh all podcasts",
+        nargs='?',
+        const=True)
+    parser.add_argument(
+        "-d",
+        "--download_all_new",
+        help="download all new podcasts",
+        nargs='?',
+        const=True)
+    parser.add_argument(
+        "-l",
+        "--list",
+        help=
+        "with no argument lists all new podcasts, with argument pod it lists all podcasts",
+        nargs='?',
+        const='new')
+    parser.add_argument(
+        "-s", "--sync", help="sync all new podcasts", nargs='?', const='new')
+    parser.add_argument(
+        "--delete", help="delete podcast, must specify podcast id")
+    parser.add_argument(
+        "--delete_old",
+        help=
+        "delete old episode downloads, defaults to local episodes, other option player",
+        nargs='?',
+        const='local')
+    parser.add_argument(
+        "--mark_old",
+        help="mark episodes older than arg as old",
+        nargs='?',
+        const='7')
+    parser.add_argument(
+        "--mark_old_podcast",
+        help="specifies mark_old podcast to mark old episodes",
+        nargs='?',
+        const=False)
+    parser.add_argument(
+        "-e", "--eject", help="eject player", nargs='?', const=True)
     args = parser.parse_args()
     podcli = PodCli()
-    
+
     if args.add_podcast:
         podcli.add_podcast(args.add_podcast)
     if args.refresh_all:

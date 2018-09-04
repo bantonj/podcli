@@ -90,6 +90,9 @@ def ascii_table_last(ascii_table):
     ascii_table.table_data = whole_table
     return last_table
 
+def get_max_dimensions(ascii_table):
+    return max_dimensions(ascii_table.table_data, ascii_table.padding_left, ascii_table.padding_right)[:3]
+
 
 class PodCli(object):
     def __init__(self):
@@ -153,18 +156,23 @@ class PodCli(object):
             "Nothing to show"
 
     def print_download_item(self, item, ascii_table):
-            term = Terminal()
+            dimensions = get_max_dimensions(ascii_table)
+            title = ""
+            for line in textwrap.wrap(item.podcast.title, dimensions[0][0], initial_indent=' ',
+                                      subsequent_indent=' '):
+                title += line + "\n"
             summ = ""
-            for line in textwrap.wrap(item.summary, term.width*0.7, initial_indent=' ', subsequent_indent=' '):
+            for line in textwrap.wrap(item.summary, dimensions[0][1], initial_indent=' ',
+                                      subsequent_indent=' '):
                 summ += line + "\n"
             if ascii_table:
-                ascii_table.table_data.append([item.podcast.title, summ])
+                ascii_table.table_data.append([title, summ])
 
                 print(ascii_table_last(ascii_table))
                 return ascii_table
             else:
                 table_headers = [['title', 'summary']]
-                table_data = [[item.podcast.title, summ]]
+                table_data = [[title, summ]]
                 ascii_table = AsciiTable(table_headers + table_data)
                 ascii_table.inner_row_border = True
                 print(ascii_table.table)

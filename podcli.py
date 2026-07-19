@@ -40,6 +40,7 @@ from terminaltables.build import flatten
 from blessings import Terminal
 from gevent import monkey
 monkey.patch_all()
+from tqdm import tqdm
 import gevent
 
 
@@ -104,6 +105,7 @@ class PodCli(object):
         self.config = load_config()
         self.download_dir = self.get_download_dir()
         self.check_download_dir()
+        create_tables()
 
     def get_download_dir(self):
         if 'download_folder' in list(self.config.keys()):
@@ -261,8 +263,9 @@ class PodCli(object):
         if not filesize:
             return False
         elif int(filesize) > os.path.getsize(filename):
-            print("filesize mismatch: %s %s" % (filesize,
-                                                os.path.getsize(filename)))
+            print("\nfilesize mismatch: %s %s: %s" % (filesize,
+                                                os.path.getsize(filename),
+                                                      filename))
             return False
         else:
             return True
@@ -271,19 +274,42 @@ class PodCli(object):
         print("Downloading ...")
         spawned = []
         ascii_table = None
-        for item in EpisodeTable.select().where(EpisodeTable.new):
+        tqdm.set_lock(gevent.lock.Semaphore())
+        for idx, item in enumerate(EpisodeTable.select().where(EpisodeTable.new)):
             filename = self.get_fullpath(item.enclosure)
             if not self.is_downloaded(item.enclosure, filename):
-                ascii_table = self.print_download_item(item, ascii_table)
+                df = Download(item.enclosure, filename)
+                try:
+                    total_size = df.get_url_file_size()
+                except Exception:
+                    total_size = None  # Fallback if the head request fails
+                if ascii_table:
+                    ascii_table = self.print_download_item(item, ascii_table)
+                pbar = tqdm(
+                                desc=f"Ep {item.id}", 
+                                unit="B", 
+                                unit_scale=True, 
+                                position=idx, # Tells tqdm which terminal line to use
+                                leave=False,
+                                total=total_size
+                            )
                 spawned.append(
                     gevent.spawn(self.download, item.enclosure, filename,
-                                 item))
+                                 item, pbar))
         gevent.joinall(spawned)
 
-    def download(self, url, fullpath, item):
+    def download(self, url, fullpath, item, pbar):
+        last_size = 0
+        def progress_callback(cursize):
+            nonlocal last_size
+            if pbar is not None:
+                chunk_size = cursize - last_size
+                pbar.update(chunk_size)
+                last_size = cursize
+
         try:
             df = Download(url, fullpath)
-            df.download()
+            df.download(call_back=progress_callback)
         except urllib.error.HTTPError:
             print("Http Error, skipping")
             return False
